@@ -9,9 +9,13 @@ import * as THREE from 'three';
 
 // import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // import { Text } from 'troika-three-text';
-// import { XR_BUTTONS } from 'gamepad-wrapper';
+import { XR_BUTTONS } from 'gamepad-wrapper';
 // import { gsap } from 'gsap';
 import { init } from './init.js';
+
+const bulletGeometry = new THREE.SphereGeometry(0.02);
+const bulletMaterial = new THREE.MeshStandardMaterial({ color: 'gray' });
+const bulletPrototype = new THREE.Mesh(bulletGeometry, bulletMaterial);
 
 // const bullets = {};
 // const forwardVector = new THREE.Vector3(0, 0, -1);
@@ -113,11 +117,16 @@ function setupScene({ scene, camera, renderer, player, controllers }) {
 	// });
 }
 
-function onFrame(
-	delta,
-	time,
-	{ scene, camera, renderer, player, controllers },
-) {
+function onFrame( delta, time, { scene, camera, renderer, player, controllers }) {
+	if (controllers.right) {
+		const {gamepad, raySpace} = controllers.right;
+		if (gamepad.getButtonClick(XR_BUTTONS.TRIGGER)) {
+			const bullet = bulletPrototype.clone();
+			scene.add(bullet);
+			raySpace.getWorldPosition(bullet.position);
+			raySpace.getWorldQuaternion(bullet.quaternion);
+		}
+	}
 	// if (controllers.right) {
 	// 	const { gamepad, raySpace, mesh } = controllers.right;
 	// 	if (!raySpace.children.includes(blasterGroup)) {
