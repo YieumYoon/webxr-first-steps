@@ -17,10 +17,10 @@ const bulletGeometry = new THREE.SphereGeometry(0.02);
 const bulletMaterial = new THREE.MeshStandardMaterial({ color: 'gray' });
 const bulletPrototype = new THREE.Mesh(bulletGeometry, bulletMaterial);
 
-// const bullets = {};
-// const forwardVector = new THREE.Vector3(0, 0, -1);
-// const bulletSpeed = 10;
-// const bulletTimeToLive = 1;
+const bullets = {};
+const forwardVector = new THREE.Vector3(0, 0, -1);
+const bulletSpeed = 10;
+const bulletTimeToLive = 1;
 
 // const blasterGroup = new THREE.Group();
 // const targets = [];
@@ -125,7 +125,27 @@ function onFrame( delta, time, { scene, camera, renderer, player, controllers })
 			scene.add(bullet);
 			raySpace.getWorldPosition(bullet.position);
 			raySpace.getWorldQuaternion(bullet.quaternion);
+
+			const directionVector = forwardVector
+				.clone()
+				.applyQuaternion(bullet.quaternion);
+			bullet.userData = {
+				velocity: directionVector.multiplyScalar(bulletSpeed),
+				timeToLive: bulletTimeToLive,
+			};
+			bullets[bullet.uuid] = bullet;
 		}
+
+		Object.values(bullets).forEach((bullet) => {
+			if (bullet.userData.timeToLive < 0) {
+				delete bullets[bullet.uuid];
+				scene.remove(bullet);
+				return;
+			}
+			const deltaVec = bullet.userData.velocity.clone().multiplyScalar(delta);
+			bullet.position.add(deltaVec);
+			bullet.userData.timeToLive -= delta;
+		});
 	}
 	// if (controllers.right) {
 	// 	const { gamepad, raySpace, mesh } = controllers.right;
