@@ -25,7 +25,8 @@ const bulletSpeed = 10;
 const bulletTimeToLive = 1;
 
 // Tutorial Chapter 4: Replacing Basic Objects with GLTF Models
-const blasterGroup = new THREE.Group();
+const rightBlasterGroup = new THREE.Group();
+const leftBlasterGroup = new THREE.Group();
 const targets = []; 
 
 // Tutorial Chapter 5: Adding a Score Display
@@ -39,7 +40,7 @@ scoreText.anchorX = 'center';
 scoreText.anchorY = 'middle';
 
 // Tutorial Chapter 6: Finishing Touches
-let laserSound, scoreSound;
+let rightLaserSound, leftLaserSound, scoreSound;
 
 // Tutorial Chapter 5: Adding a Score Display
 function updateScoreDisplay() {
@@ -83,7 +84,10 @@ function setupScene({ scene, camera, renderer, player, controllers }) {
 		scene.add(gltf.scene);
 	});
 	gltfLoader.load('assets/blaster.glb', (gltf) => {
-		blasterGroup.add(gltf.scene);
+		rightBlasterGroup.add(gltf.scene);
+	});
+	gltfLoader.load('assets/blaster.glb', (gltf) => {
+		leftBlasterGroup.add(gltf.scene);
 	});
 	gltfLoader.load('assets/target.glb', (gltf) => {
 		for (let i = 0; i < 3; i++) {
@@ -113,10 +117,15 @@ function setupScene({ scene, camera, renderer, player, controllers }) {
 
 	// laser sound
 	const audioLoader = new THREE.AudioLoader();
-	laserSound = new THREE.PositionalAudio(listener);
+	rightLaserSound = new THREE.PositionalAudio(listener);
 	audioLoader.load('assets/laser.ogg', (buffer) => {
-		laserSound.setBuffer(buffer);
-		blasterGroup.add(laserSound);
+		rightLaserSound.setBuffer(buffer);
+		rightBlasterGroup.add(rightLaserSound);
+	});
+	leftLaserSound = new THREE.PositionalAudio(listener);
+	audioLoader.load('assets/laser.ogg', (buffer) => {
+		leftLaserSound.setBuffer(buffer);
+		leftBlasterGroup.add(leftLaserSound);
 	});
 
 	// score sound
@@ -127,104 +136,121 @@ function setupScene({ scene, camera, renderer, player, controllers }) {
 	});
 }
 
+function fireBullet(scene, raySpace, blasterGroup, laserSound, gamepad) {
+	const bulletPrototype = blasterGroup.getObjectByName('bullet');
+	if (bulletPrototype) {
+		const bullet = bulletPrototype.clone();
+		scene.add(bullet);
+		raySpace.getWorldPosition(bullet.position);
+		raySpace.getWorldQuaternion(bullet.quaternion);
+
+		const directionVector = forwardVector
+			.clone()
+			.applyQuaternion(bullet.quaternion);
+		bullet.userData = {
+			velocity: directionVector.multiplyScalar(bulletSpeed),
+			timeToLive: bulletTimeToLive,
+		};
+		bullets[bullet.uuid] = bullet;
+
+		// Play laser sound
+		if (laserSound.isPlaying) laserSound.stop();
+		laserSound.play();
+
+		// Haptic feedback
+		try {
+			gamepad.getHapticActuator(0).pulse(0.6, 100);
+		} catch {
+			// haptic feedback not supported on this controller
+		}
+	}
+}
+
 function onFrame( delta, time, { scene, camera, renderer, player, controllers }) {
 	if (controllers.right) {
 		const {gamepad, raySpace, mesh} = controllers.right;
 
 		// Chapter 4: Attaching the Blaster to the Controller
-		if (!raySpace.children.includes(blasterGroup)) {
-			raySpace.add(blasterGroup);
+		if (!raySpace.children.includes(rightBlasterGroup)) {
+			raySpace.add(rightBlasterGroup);
 			mesh.visible = false; // Hide the default controller model
 		}
 
 		if (gamepad.getButtonClick(XR_BUTTONS.TRIGGER)) {
-			const bulletPrototype = blasterGroup.getObjectByName('bullet');
-				if (bulletPrototype) {
-				const bullet = bulletPrototype.clone();
-				scene.add(bullet);
-				raySpace.getWorldPosition(bullet.position);
-				raySpace.getWorldQuaternion(bullet.quaternion);
+			fireBullet(scene, raySpace, rightBlasterGroup, rightLaserSound, gamepad);
+		}
+	}
 
-				const directionVector = forwardVector
-					.clone()
-					.applyQuaternion(bullet.quaternion);
-				bullet.userData = {
-					velocity: directionVector.multiplyScalar(bulletSpeed),
-					timeToLive: bulletTimeToLive,
-				};
-				bullets[bullet.uuid] = bullet;
-				// Tutorial Chapter 6: Finishing Touches
-				if (laserSound.isPlaying) laserSound.stop();
-				laserSound.play();
+	// Handle left controller
+	if (controllers.left) {
+		const {gamepad, raySpace, mesh} = controllers.left;
 
-				try {
-					const hapticActuator = gamepad.getHapticActuator(0).pulse(0.6, 100);
-				} catch {
-					// haptic feedback not supported on this controller
-				}
-				}
+		// Attach the left blaster to the controller
+		if (!raySpace.children.includes(leftBlasterGroup)) {
+			raySpace.add(leftBlasterGroup);
+			mesh.visible = false; // Hide the default controller model
 		}
 
-		Object.values(bullets).forEach((bullet) => {
-			if (bullet.userData.timeToLive < 0) {
+		if (gamepad.getButtonClick(XR_BUTTONS.TRIGGER)) {
+			fireBullet(scene, raySpace, leftBlasterGroup, leftLaserSound, gamepad);
+		}
+	}
+
+	Object.values(bullets).forEach((bullet) => {
+		if (bullet.userData.timeToLive < 0) {
+			delete bullets[bullet.uuid];
+			scene.remove(bullet);
+			return;
+		}
+		const deltaVec = bullet.userData.velocity.clone().multiplyScalar(delta);
+		bullet.position.add(deltaVec);
+		bullet.userData.timeToLive -= delta;
+		targets
+		.filter((target) => target.visible)
+		.forEach((target) => {
+			const distance = target.position.distanceTo(bullet.position);
+			if (distance < 1) {
 				delete bullets[bullet.uuid];
 				scene.remove(bullet);
-				return;
+				// make target disappear, and then reappear at a different place after 2 seconds
+				// target.visible = false;
+				// setTimeout(() => {
+				// 	target.visible = true;
+				// 	target.position.x = Math.random() * 10 - 5;
+				// 	target.position.z = -Math.random() * 5 - 5;
+				// }, 2000);
+				// Tutorial Chapter 6: Finishing Touches
+				score += 10; // Update the score when a target is hit
+				updateScoreDisplay(); // Update the rendered troika-three-text object
+				// Tutorial Chapter 6: Finishing Touches
+				gsap.to(target.scale, {
+					duration: 0.3,
+					x: 0,
+					y: 0,
+					z: 0,
+					onComplete: () => {
+						target.visible = false;
+						setTimeout(() => {
+							target.visible = true;
+							target.position.x = Math.random() * 10 - 5;
+							target.position.z = -Math.random() * 5 - 5;
+				
+							// Scale back up the target
+							gsap.to(target.scale, {
+								duration: 0.3,
+								x: 1,
+								y: 1,
+								z: 1,
+							});
+						}, 1000);
+					},
+				});
+				if (scoreSound.isPlaying) scoreSound.stop();
+				scoreSound.play();
 			}
-			const deltaVec = bullet.userData.velocity.clone().multiplyScalar(delta);
-			bullet.position.add(deltaVec);
-			bullet.userData.timeToLive -= delta;
-
-			targets
-			.filter((target) => target.visible)
-			.forEach((target) => {
-				const distance = target.position.distanceTo(bullet.position);
-				if (distance < 1) {
-					delete bullets[bullet.uuid];
-					scene.remove(bullet);
-
-					// make target disappear, and then reappear at a different place after 2 seconds
-					// target.visible = false;
-					// setTimeout(() => {
-					// 	target.visible = true;
-					// 	target.position.x = Math.random() * 10 - 5;
-					// 	target.position.z = -Math.random() * 5 - 5;
-					// }, 2000);
-					// Tutorial Chapter 6: Finishing Touches
-
-					score += 10; // Update the score when a target is hit
-					updateScoreDisplay(); // Update the rendered troika-three-text object
-
-					// Tutorial Chapter 6: Finishing Touches
-					gsap.to(target.scale, {
-						duration: 0.3,
-						x: 0,
-						y: 0,
-						z: 0,
-						onComplete: () => {
-							target.visible = false;
-							setTimeout(() => {
-								target.visible = true;
-								target.position.x = Math.random() * 10 - 5;
-								target.position.z = -Math.random() * 5 - 5;
-					
-								// Scale back up the target
-								gsap.to(target.scale, {
-									duration: 0.3,
-									x: 1,
-									y: 1,
-									z: 1,
-								});
-							}, 1000);
-						},
-					});
-
-					if (scoreSound.isPlaying) scoreSound.stop();
-					scoreSound.play();
-				}
-			});
 		});
-	}
+	});
+	
 	gsap.ticker.tick(delta);
 }
 
